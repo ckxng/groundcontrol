@@ -34,4 +34,4 @@ while True:
     st.set_state(S_RUNNING)
     execute_all_one_time()
     st.set_state(S_SLEEPING)
-    sleep(60)
+    sleep(cfg.run_interval)

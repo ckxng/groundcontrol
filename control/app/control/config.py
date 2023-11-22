@@ -10,6 +10,7 @@ class Config:
     tank_database_user: str = "postgres"
     tank_database_password: str = "postgres"
     tank_database_hostname: str = "tank"
+    run_interval: int = 1200
 
     def __init__(self):
         pass
@@ -22,6 +23,7 @@ class Config:
         self.set_tank_database_user()
         self.set_tank_database_password()
         self.set_tank_database_hostname()
+        self.set_run_interval()
 
     def set_logging_level(self, logging_level: str = None):
         if logging_level is None:
@@ -56,15 +58,28 @@ class Config:
     def set_tank_database_name(self, tank_database_name: str = None):
         if tank_database_name is None:
             self.tank_database_name = getenv("POSTGRES_DB")
+        else:
+            self.tank_database_name = tank_database_name
 
     def set_tank_database_user(self, tank_database_user: str = None):
         if tank_database_user is None:
             self.tank_database_user = getenv("POSTGRES_USER")
+        else:
+            self.tank_database_user = tank_database_user
 
     def set_tank_database_password(self, tank_database_password: str = None):
         if tank_database_password is None:
             self.tank_database_password = getenv("POSTGRES_PASSWORD")
+        else:
+            self.tank_database_password = tank_database_password
 
     def set_tank_database_hostname(self, tank_database_hostname: str = None):
         if tank_database_hostname is None:
             self.tank_database_hostname = getenv("TANK_HOSTNAME")
+        else:
+            self.tank_database_hostname = tank_database_hostname
+
+    def set_run_interval(self, run_interval: int = 60):
+        if run_interval is None:
+            run_interval = int(getenv("CONTROL_RUN_INTERVAL"))
+        self.run_interval = run_interval
