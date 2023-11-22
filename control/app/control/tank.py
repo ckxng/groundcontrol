@@ -14,7 +14,7 @@ class TankInvalidSchemaError(Exception):
 
 
 class Tank:
-    __conn = None
+    _conn = None
     __schema_version: int = 0
     __MINIMUM_ALLOWED_SCHEMA_VERSION: int = 1
 
@@ -39,9 +39,9 @@ class Tank:
             raise TankInvalidSchemaError(err_str)
 
     def __del__(self):
-        if self.__conn is not None:
+        if self._conn is not None:
             logging.debug("Tank __del__ closing database connection")
-            self.__conn.close()
+            self._conn.close()
 
     def __connect(self,
                   database: str = cfg.tank_database_name,
@@ -49,13 +49,13 @@ class Tank:
                   host: str = cfg.tank_database_hostname,
                   password: str = cfg.tank_database_password):
         logging.debug(f"Tank __connect connecting to database {database} on {host}")
-        self.__conn = connect(database=database,
-                              user=user,
-                              host=host,
-                              password=password)
+        self._conn = connect(database=database,
+                             user=user,
+                             host=host,
+                             password=password)
 
     def __does_table_exist(self, table: str):
-        with self.__conn.cursor() as cur:
+        with self._conn.cursor() as cur:
             cur.execute("select exists(select * from information_schema.tables where table_name=%s)", (table,))
             if cur.fetchone()[0]:
                 logging.debug(f"Tank __does_table_exist {table} exists")
@@ -76,7 +76,7 @@ class Tank:
         if not self.__does_table_exist("schema_config"):
             logging.debug("Tank __get_schema_version schema_config table does not exist")
             self.__schema_version = 0
-        with self.__conn.cursor() as cur:
+        with self._conn.cursor() as cur:
             cur.execute("""
                         select version from schema_config
                         order by config_id desc 
@@ -87,7 +87,7 @@ class Tank:
     def __schema_v0_to_v1(self):
         logging.debug("Tank __schema_v0_to_v1 creating new v1 schema")
 
-        with self.__conn.cursor() as cur:
+        with self._conn.cursor() as cur:
             cur.execute("""
                         create table schema_config(
                             ds date not null default current_date, 
@@ -109,7 +109,7 @@ class Tank:
                         )
             """)
 
-            self.__conn.commit()
+            self._conn.commit()
 
     def log_result(self, task_name: str, result: int, data=None):
         logging.debug(f"Tank log_result logging {task_name} with result {result}")
@@ -118,7 +118,7 @@ class Tank:
         if data is not None:
             data_str = dumps(data)
 
-        with self.__conn.cursor() as cur:
+        with self._conn.cursor() as cur:
             cur.execute("""
                         insert into task_log (
                             task_name,
@@ -131,10 +131,10 @@ class Tank:
                             %s
                         )
             """, (task_name, result, data_str,))
-            self.__conn.commit()
+            self._conn.commit()
 
     def has_task_run_ok_today(self, name):
-        with self.__conn.cursor() as cur:
+        with self._conn.cursor() as cur:
             cur.execute("""
                         select log_id
                         from task_log
