@@ -1,9 +1,13 @@
 import logging
-from control.task_return import TR_OK, TR_GENERAL_ERROR
+from control.task_return import TR_OK, TR_GENERAL_ERROR, TR_UPSTREAM_DATA_INVALID
 from control.tank import Tank
 from os import getenv
 from pypco import PCO
 from json import dumps
+
+
+class PCOPeopleSyncUpstreamDataInvalidError(Exception):
+    pass
 
 
 class MyTank(Tank):
@@ -64,8 +68,16 @@ class MyTank(Tank):
 
     def save_person(self, person):
         with self._conn.cursor() as cur:
-            logging.debug("task pco_people_sync MyTank save_person saving "
-                          f"{person['attributes']['first_name']} {person['attributes']['last_name']}")
+            pco_id = None
+            attributes = None
+            try:
+                pco_id = person["data"]["id"]
+                attributes = person["data"]["attributes"]
+            except KeyError as e:
+                raise PCOPeopleSyncUpstreamDataInvalidError(
+                    f"cannot save a person with missing data attributes or id: {e}")
+
+            logging.debug(f"task pco_people_sync MyTank save_person saving {pco_id}")
             cur.execute("""
                         insert into pco_people_sync (
                             pco_id,
@@ -133,36 +145,36 @@ class MyTank(Tank):
                             %s
                         )
             """, (
-                person["id"],
-                person["attributes"].get("first_name", None),
-                person["attributes"].get("given_name", None),
-                person["attributes"].get("nickname", None),
-                person["attributes"].get("last_name", None),
-                person["attributes"].get("birthdate", None),
-                person["attributes"].get("anniversary", None),
-                person["attributes"].get("gender", None),
-                person["attributes"].get("grade", None),
-                person["attributes"].get("child", None),
-                person["attributes"].get("graduation_year", None),
-                person["attributes"].get("site_administrator", None),
-                person["attributes"].get("accounting_administrator", None),
-                person["attributes"].get("people_permissions", None),
-                person["attributes"].get("membership", None),
-                person["attributes"].get("inactivated_at", None),
-                person["attributes"].get("status", None),
-                person["attributes"].get("medical_notes", None),
-                person["attributes"].get("mfa_configured", None),
-                person["attributes"].get("created_at", None),
-                person["attributes"].get("updated_at", None),
-                person["attributes"].get("avatar", None),
-                person["attributes"].get("name", None),
-                person["attributes"].get("demographic_avatar_url", None),
-                person["attributes"].get("directory_status", None),
-                person["attributes"].get("passed_background_check", None),
-                person["attributes"].get("can_create_forms", None),
-                person["attributes"].get("can_email_lists", None),
-                person["attributes"].get("school_type", None),
-                person["attributes"].get("remote_id", None),
+                pco_id,
+                attributes.get("first_name", None),
+                attributes.get("given_name", None),
+                attributes.get("nickname", None),
+                attributes.get("last_name", None),
+                attributes.get("birthdate", None),
+                attributes.get("anniversary", None),
+                attributes.get("gender", None),
+                attributes.get("grade", None),
+                attributes.get("child", None),
+                attributes.get("graduation_year", None),
+                attributes.get("site_administrator", None),
+                attributes.get("accounting_administrator", None),
+                attributes.get("people_permissions", None),
+                attributes.get("membership", None),
+                attributes.get("inactivated_at", None),
+                attributes.get("status", None),
+                attributes.get("medical_notes", None),
+                attributes.get("mfa_configured", None),
+                attributes.get("created_at", None),
+                attributes.get("updated_at", None),
+                attributes.get("avatar", None),
+                attributes.get("name", None),
+                attributes.get("demographic_avatar_url", None),
+                attributes.get("directory_status", None),
+                attributes.get("passed_background_check", None),
+                attributes.get("can_create_forms", None),
+                attributes.get("can_email_lists", None),
+                attributes.get("school_type", None),
+                attributes.get("remote_id", None),
                 dumps(person),
             ))
             self._conn.commit()
@@ -176,22 +188,30 @@ def run():
         tank = MyTank()
         pco = PCO(getenv("PCO_APP_ID"), getenv("PCO_APP_SECRET"))
 
-        for person in pco.iterate('/people/v2/people'):
+        for person in pco.iterate("/people/v2/people?include=addresses,emails,field_data,households,"
+                                  "inactive_reason,marital_status,name_prefix,name_suffix,organization,person_apps,"
+                                  "phone_numbers,platform_notifications,primary_campus,school,social_profiles"):
+            pco_id = person.get("data", {}).get("id", "?")
+            logging.debug(f"task pco_people_sync found {pco_id}")
             people.append({
-                "pco_id": person['data']['id'],
-                "first_name": person['data']['attributes']['first_name'],
-                "last_name": person['data']['attributes']['last_name'],
+                "pco_id": pco_id,
             })
-            logging.debug("task pco_people_sync found "
-                          f"{person['data']['id']} "
-                          f"{person['data']['attributes']['first_name']} "
-                          f"{person['data']['attributes']['last_name']}")
-            tank.save_person(person["data"])
+            tank.save_person(person)
+
+    except PCOPeopleSyncUpstreamDataInvalidError as e:
+        logging.critical(f"task pco_people_sync upstream invalid data error: {e}")
+        return TR_UPSTREAM_DATA_INVALID, {
+            "exception": e,
+            "possible_error_in": people[-1],
+            "people_processed": people[:-1],
+        }
 
     except Exception as e:
         logging.critical(f"task pco_people_sync unknown error: {e}")
         return TR_GENERAL_ERROR, {
             "exception": e,
+            "possible_error_in": people[-1],
+            "people_processed": people[:-1],
         }
 
     return TR_OK, {

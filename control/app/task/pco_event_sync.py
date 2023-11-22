@@ -1,9 +1,13 @@
 import logging
-from control.task_return import TR_OK, TR_GENERAL_ERROR
+from control.task_return import TR_OK, TR_GENERAL_ERROR, TR_UPSTREAM_DATA_INVALID
 from control.tank import Tank
 from os import getenv
 from pypco import PCO
 from json import dumps
+
+
+class PCOEventSyncUpstreamDataInvalidError(Exception):
+    pass
 
 
 class MyTank(Tank):
@@ -47,10 +51,26 @@ class MyTank(Tank):
 
     def save_event(self, event):
         with self._conn.cursor() as cur:
-            logging.debug(f"task pco_event_sync MyTank save_event saving {event['id']}")
+            pco_id = None
+            attributes = None
+            try:
+                pco_id = event["data"]["id"]
+                attributes = event["data"]["attributes"]
+            except KeyError as e:
+                raise PCOEventSyncUpstreamDataInvalidError(
+                    f"cannot save an event with missing data attributes or id: {e}")
+
             related_owner_id = None
-            if event["relationships"]["owner"]["data"] is not None:
-                related_owner_id = event["relationships"]["owner"]["data"]["id"]
+            try:
+                related_owner_id = int(event["data"]["relationships"]["owner"]["data"]["id"])
+            except KeyError:
+                pass
+            except ValueError:
+                pass
+            except TypeError:
+                pass
+
+            logging.debug(f"task pco_event_sync MyTank save_event saving {pco_id}")
             cur.execute("""
                         insert into pco_event_sync (
                             pco_id,
@@ -84,18 +104,18 @@ class MyTank(Tank):
                             %s
                         )
             """, (
-                event["id"],
-                event["attributes"].get("approval_status", None),
-                event["attributes"].get("created_at", None),
-                event["attributes"].get("updated_at", None),
-                event["attributes"].get("description", None),
-                event["attributes"].get("image_url", None),
-                event["attributes"].get("name", None),
-                event["attributes"].get("percent_approved", None),
-                event["attributes"].get("percent_rejected", None),
-                event["attributes"].get("registration_url", None),
-                event["attributes"].get("summary", None),
-                event["attributes"].get("visible_in_church_center", None),
+                pco_id,
+                attributes.get("approval_status", None),
+                attributes.get("created_at", None),
+                attributes.get("updated_at", None),
+                attributes.get("description", None),
+                attributes.get("image_url", None),
+                attributes.get("name", None),
+                attributes.get("percent_approved", None),
+                attributes.get("percent_rejected", None),
+                attributes.get("registration_url", None),
+                attributes.get("summary", None),
+                attributes.get("visible_in_church_center", None),
                 related_owner_id,
                 dumps(event),
             ))
@@ -110,17 +130,27 @@ def run():
         tank = MyTank()
         pco = PCO(getenv("PCO_APP_ID"), getenv("PCO_APP_SECRET"))
 
-        for event in pco.iterate('/calendar/v2/events'):
+        for event in pco.iterate('/calendar/v2/events?include=tags,feed'):
+            pco_id = event.get("data", {}).get("id", "?")
+            logging.debug(f"task pco_event_sync found {pco_id} ")
             events.append({
-                "pco_id": event['data']['id'],
+                "pco_id": pco_id,
             })
-            logging.debug(f"task pco_event_sync found {event['data']['id']} ")
-            tank.save_event(event["data"])
+            tank.save_event(event)
+
+    except PCOEventSyncUpstreamDataInvalidError as e:
+        logging.critical(f"task pco_event_sync upstream invalid data error: {e}")
+        return TR_UPSTREAM_DATA_INVALID, {
+            "exception": e,
+            "possible_error_in": events[-1],
+            "events_processed": events[:-1],
+        }
 
     except Exception as e:
         logging.critical(f"task pco_event_sync unknown error: {e}")
         return TR_GENERAL_ERROR, {
             "exception": e,
+            "events_processed": events[:-1],
         }
 
     return TR_OK, {
