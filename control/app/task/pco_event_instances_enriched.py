@@ -146,6 +146,8 @@ class MyTank(Tank):
                             left join pco_people_sync p on p.pco_id = e.related_owner_id
                         where
                             i.ds = current_date
+                            and e.ds = current_date
+                            and p.ds = current_date
             """)
             self._conn.commit()
 
